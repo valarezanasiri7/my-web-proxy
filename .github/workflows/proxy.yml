@@ -7,14 +7,33 @@ jobs:
   run-proxy:
     runs-on: ubuntu-latest
     steps:
-      - name: Run HTTP Proxy and Tunnel
+      - name: Install 3proxy
         run: |
-          # اجرای پروکسی با استفاده از Docker (خودکار و بدون نیاز به دانلود)
-          docker run -d --rm -p 8080:8080 ghcr.io/snail007/goproxy:latest http -t tcp -p ":8080"
-          sleep 3
+          sudo apt-get update
+          sudo apt-get install -y 3proxy
+
+      - name: Create config and run
+        run: |
+          # ساخت فایل تنظیمات 3proxy
+          cat > 3proxy.cfg << EOF
+          nserver 8.8.8.8
+          nserver 1.1.1.1
+          nscache 65536
+          timeouts 1 5 30 60 180 1800 15 60
+          users user:CL:pass
+          auth strong
+          allow * * * 80-88,8080-8088
+          proxy -p8080
+          flush
+          EOF
           
-          # نصب و اجرای bore
-          curl -L -o bore https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-musl.tar.gz
-          tar -xzf bore
+          # اجرای 3proxy
+          3proxy 3proxy.cfg &
+          sleep 2
+
+          # نصب و اجرای bore (برای تونل زدن)
+          curl -L -o bore.tar.gz https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-musl.tar.gz
+          tar -xzf bore.tar.gz
           chmod +x bore
+          echo "Tunnel URL will appear below:"
           ./bore local 8080 --to bore.pub
