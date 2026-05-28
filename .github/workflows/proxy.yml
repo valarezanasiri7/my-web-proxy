@@ -1,4 +1,4 @@
-name: Run Web Proxy
+name: Run Web Proxy with Cloudflare
 
 on:
   workflow_dispatch:
@@ -7,15 +7,16 @@ jobs:
   run-proxy:
     runs-on: ubuntu-latest
     steps:
-      - name: Install dependencies
+      - name: Install cloudflared
         run: |
-          sudo apt-get update
-          sudo apt-get install -y socat
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x cloudflared-linux-amd64
+          sudo mv cloudflared-linux-amd64 /usr/local/bin/cloudflared
       
-      - name: Create simple HTTP proxy with Python
+      - name: Create HTTP Proxy with Python
         run: |
-          # یک پروکسی HTTP بسیار ساده با Python (که از قبل نصب هست)
-          cat > proxy.py << 'EOF'
+          # یک پروکسی HTTP ساده با پشتیبانی از CONNECT method
+          cat > simple-proxy.py << 'EOF'
           import socket
           import threading
           import sys
@@ -26,27 +27,30 @@ jobs:
                   client_socket.close()
                   return
               
-              # استخراج هاست و پورت از درخواست
-              lines = request.decode('utf-8', errors='ignore').split('\n')
-              if lines:
-                  parts = lines[0].split(' ')
-                  if len(parts) >= 2 and parts[0] == 'CONNECT':
-                      host_port = parts[1].split(':')
+              try:
+                  # تلاش برای parse درخواست HTTP
+                  first_line = request.split(b'\n')[0].decode('utf-8', errors='ignore')
+                  
+                  if first_line.startswith('CONNECT'):
+                      # درخواست HTTPS
+                      host_port = first_line.split(' ')[1].split(':')
                       host = host_port[0]
-                      port = int(host_port[1]) if len(host_port) > 1 else 80
+                      port = int(host_port[1]) if len(host_port) > 1 else 443
                       
-                      # اتصال به سرور مقصد
-                      server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                      server.connect((host, port))
+                      server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                      server_socket.connect((host, port))
                       client_socket.send(b'HTTP/1.1 200 Connection Established\r\n\r\n')
                       
-                      # هدایت ترافیک
-                      threading.Thread(target=forward, args=(client_socket, server)).start()
-                      forward(server, client_socket)
+                      # هدایت دوطرفه
+                      threading.Thread(target=forward, args=(client_socket, server_socket)).start()
+                      forward(server_socket, client_socket)
                   else:
-                      # پروکسی HTTP ساده
-                      client_socket.send(b'HTTP/1.1 200 OK\r\n\r\nProxy is working!')
-              client_socket.close()
+                      # درخواست HTTP معمولی
+                      client_socket.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body><h2>Proxy is Working!</h2><p>Use this as an HTTP proxy.</p></body></html>')
+              except Exception as e:
+                  print(f"Error: {e}")
+              finally:
+                  client_socket.close()
           
           def forward(source, dest):
               try:
@@ -63,22 +67,20 @@ jobs:
               server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
               server.bind(('0.0.0.0', port))
               server.listen(50)
-              print(f"Proxy running on port {port}")
+              print(f"✅ HTTP Proxy running on port {port}")
               
               while True:
                   client, addr = server.accept()
+                  print(f"Connection from {addr}")
                   threading.Thread(target=handle_client, args=(client,)).start()
           
           if __name__ == '__main__':
               start_proxy(8080)
           EOF
           
-          python3 proxy.py &
+          python3 simple-proxy.py &
           sleep 3
           
-          # نصب و اجرای bore
-          curl -L -o bore.tar.gz https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-musl.tar.gz
-          tar -xzf bore.tar.gz
-          chmod +x bore
-          echo "✅ Tunnel URL will appear below:"
-          ./bore local 8080 --to bore.pub
+          # ایجاد تونل با Cloudflare
+          echo "🔄 Creating Cloudflare tunnel..."
+          /usr/local/bin/cloudflared tunnel --url http://localhost:8080 --metrics localhost:45678
