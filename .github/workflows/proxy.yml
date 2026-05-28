@@ -1,0 +1,31 @@
+name: Run Web Proxy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-proxy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install goproxy
+        run: |
+          wget https://github.com/snail007/goproxy/releases/download/v14.4/proxy-linux-amd64.tar.gz
+          tar -xzf proxy-linux-amd64.tar.gz
+          chmod +x proxy
+
+      - name: Start HTTP Proxy and Tunnel
+        run: |
+          # اجرای پروکسی ساده روی پورت 8080
+          ./proxy http -t tcp -p ":8080" &
+          sleep 2
+          
+          # ایجاد تونل به بیرون با سرویس bore.pub
+          wget -O bore https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-musl.tar.gz
+          tar -xzf bore.tar.gz
+          chmod +x bore
+          
+          # این دستور لینک جادویی رو می‌سازه
+          ./bore local 8080 --to bore.pub
